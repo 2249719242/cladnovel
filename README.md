@@ -5,6 +5,11 @@
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-purple.svg)](https://claude.ai/claude-code)
 
 <a href="https://trendshift.io/repositories/22487" target="_blank"><img src="https://trendshift.io/api/badge/repositories/22487" alt="lingfengQAQ%2Fwebnovel-writer | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
+> **关于本仓库**：本仓库是 [lingfengQAQ/webnovel-writer](https://github.com/lingfengQAQ/webnovel-writer)（GPL v3）的 fork。
+> 在上游基础上新增了三项能力：**审查教训自更新**、**确定性反 AI 扫描**、**小卷（故事弧）规划层**（详见 [docs/guides/](docs/guides/)）。
+> 本仓库同样遵循 GPL v3；原作者版权与许可见 [LICENSE](LICENSE)，致谢见文末。
+
 ## 这是什么？
 
 `Webnovel Writer` 是一个基于 Claude Code 的长篇网文创作系统。
