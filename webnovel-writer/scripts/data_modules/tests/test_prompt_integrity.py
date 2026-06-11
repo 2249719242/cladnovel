@@ -36,7 +36,7 @@ REGISTERED_CLI_SUBCOMMANDS = {
     "init", "extract-context", "memory-contract", "project-memory", "review-pipeline",
     "placeholder-scan", "master-outline-sync",
     "story-system", "chapter-commit", "story-events", "knowledge",
-    "review-lessons", "anti-ai-scan", "arc",
+    "review-lessons", "anti-ai-scan", "arc", "style-fingerprint",
 }
 
 
