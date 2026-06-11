@@ -14,29 +14,40 @@ allowed-tools: Read Write Edit Grep Bash Agent
 
 | 模式 | 流程 |
 |------|------|
-| 默认 | Step 1→2→3→4→5→6 |
-| `--fast` | Step 1→2→3(轻量)→4→5→6 |
-| `--minimal` | Step 1→2→4(仅排版)→5→6 |
+| 默认 | Step 1→1.5(任务书确认门)→2→3→4→5→6 |
+| `--auto` | 跳过 Step 1.5 确认门，全自动 |
+| `--fast` | Step 1→1.5→2→3(轻量)→4→5→6 |
+| `--minimal` | Step 1→2→4(仅排版)→5→6（跳过确认门） |
+
+## 人工简报（最高优先级输入）
+
+用户在写章指令中给出的本章要点——情节走向、必出场景、人物安排、对白意图、要避免的内容——统称**人工简报**。规则：
+
+- 人工简报视同"用户明确要求"，在优先级链中最高
+- 必须原样传给 context-agent（prompt 中以 `user_brief=` 传入），注入任务书"这章的故事"段顶部
+- 简报与章纲冲突时**以简报为准**，并在任务书中标注差异（供用户察觉章纲已偏离）
+- 用户没给简报时不追问，按章纲自动装配
 
 ## 硬规则
 
 - 禁止并步、跳步、伪造审查
 - 必须使用 `Agent` 工具调用指定 subagent；不得用主流程口头代替 subagent 输出
+- 默认模式下任务书未经用户确认不得起草（Step 1.5）
 - blocking issue 未解决不进 Step 4/5
 - 失败只补跑失败步骤，不回退
 - 参考资料按步骤按需加载
 
 ## 优先级
 
-用户要求 > 状态机硬门槛 > 项目约束（总纲/设定/记忆）> skill 流程 > reference 建议
+用户要求（含人工简报）> 状态机硬门槛 > 项目约束（总纲/设定/记忆）> skill 流程 > reference 建议
 
-## CSV 检索（Step 2 按需）
+## CSV 检索（默认不查）
 
 ```bash
 python -X utf8 "${SCRIPTS_DIR}/reference_search.py" --skill write --table {表名} --query "{关键词}" --genre {题材}
 ```
 
-触发条件：新角色→命名规则，战斗→场景写法，多角色对话→写作技法，情感描写→写作技法，高频桥段→场景写法。
+通用写作技巧（场景写法/写作技法/桥段套路）**默认不检索**——模型自身的写作能力已覆盖大部分通用技巧，注入反而同质化。只在两种情况查：用户明确要求；或任务书指出本书专属设定缺口（如新角色命名需贴合本书命名体系→查命名规则）。
 
 ## 执行流程
 
@@ -82,11 +93,20 @@ python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${WORKSPACE_ROOT}" \
 ```text
 Agent(
   subagent_type: "webnovel-writer:context-agent",
-  prompt: "chapter={chapter_num}; project_root=${PROJECT_ROOT}; scripts_dir=${SCRIPTS_DIR}; storage_path=${PROJECT_ROOT}/.webnovel; state_file=${PROJECT_ROOT}/.webnovel/state.json（projection/read-model，仅兼容读取）。先 research，再按 本章硬性约束→CBN/CPNs/CEN→本章禁区→风格指引→dynamic_context补充参考 的顺序输出五段写作任务书。"
+  prompt: "chapter={chapter_num}; project_root=${PROJECT_ROOT}; scripts_dir=${SCRIPTS_DIR}; storage_path=${PROJECT_ROOT}/.webnovel; state_file=${PROJECT_ROOT}/.webnovel/state.json（projection/read-model，仅兼容读取）; user_brief={用户给出的本章人工简报原文，无则留空}。先 research，再按 本章硬性约束→CBN/CPNs/CEN→本章禁区→风格指引→dynamic_context补充参考 的顺序输出五段写作任务书。user_brief 非空时注入第 2 段顶部且优先于章纲，冲突处标注差异。"
 )
 ```
 
 产物：一份写作任务书，能独立支撑 Step 2 起草。
+
+### Step 1.5：任务书确认门（默认必经）
+
+把任务书**完整原文**展示给用户，并询问是否确认或要修改。规则：
+
+- 用户给出修改意见 → 按意见调整任务书（用户意见优先于任务书任何内容），再次展示确认
+- 用户确认（或明确说"直接写"）→ 进入 Step 2
+- `--auto` / `--minimal` 模式跳过本步
+- 本步是人对每章情节/场景/剧情约束的主要介入点：剧情偏离在这里纠正，比写完返工便宜得多
 
 ### Step 2：起草正文
 
@@ -120,6 +140,21 @@ blocking=true → 修复后重审，不进 Step 4。`--fast` 只检查 setting/t
 
 顺序：修复非 blocking issue → 风格适配 → 排版 → Anti-AI 终检。
 
+**作者风格对齐**（有激活画像时，并入"风格适配"）：
+
+```bash
+python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" style-fingerprint list
+```
+
+`active` 非空时：按 `.webnovel/style/{active}.profile.md` 做风格对齐（句式/对白/节奏向画像靠），然后跑指纹对比定位偏差：
+
+```bash
+python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" style-fingerprint compare \
+  --name {active} --file "${CHAPTER_FILE}"
+```
+
+`alignment=low` 时按 `off_fields` 逐项修（如对白占比偏低→把叙述性交代改成对白）后重新 compare；medium/high 可放行。风格对齐与 style-adapter 通用规则冲突时，以画像为准。
+
 Anti-AI 终检先跑确定性扫描定位命中，再据其修复，不靠人眼数词：
 `python "${SCRIPTS_DIR}/webnovel.py" anti-ai-scan --chapter {chapter_num}`（或 `--file <正文路径>`）。
 依据返回的 `findings`（含命中样例与修复方向）逐项改写；`summary.ai_flavor_risk=high` 时必须改到 medium 以下再判 `anti_ai_force_check`。
@@ -135,11 +170,11 @@ Anti-AI 终检先跑确定性扫描定位命中，再据其修复，不靠人眼
 ```text
 Agent(
   subagent_type: "webnovel-writer:data-agent",
-  prompt: "chapter={chapter_num}; chapter_file=${CHAPTER_FILE}; project_root=${PROJECT_ROOT}; scripts_dir=${SCRIPTS_DIR}。从正文提取事实，生成 .webnovel/tmp/ 下的 fulfillment_result.json、disambiguation_result.json、extraction_result.json；不直接写 state/index/summaries/memory。"
+  prompt: "chapter={chapter_num}; chapter_file=${CHAPTER_FILE}; project_root=${PROJECT_ROOT}; scripts_dir=${SCRIPTS_DIR}。从正文提取事实，生成 .webnovel/tmp/ 下的 fulfillment_result.json、disambiguation_result.json、extraction_result.json（含 scene_chunks 场景切片）；不直接写 state/index/summaries/memory/向量库。"
 )
 ```
 
-Data Agent 只提取事实+生成 artifacts，不直接写 state/index/summaries/memory。
+Data Agent 只提取事实+生成 artifacts，不直接写 state/index/summaries/memory/向量库（场景切片放进 extraction_result.scene_chunks，由 commit 投影链统一写入）。
 
 #### 5.2 CHAPTER_COMMIT
 
@@ -162,7 +197,14 @@ chapter_status 由 projection writer 自动推进：accepted→committed，rejec
 
 #### 5.4 失败隔离
 
-commit 未生成→重跑 5.2。projection 失败→只补跑失败项。不回退 Step 1-4。
+commit 未生成→重跑 5.2。projection 失败（projection_status 出现 failed/pending）→ 用 resume 只补跑失败项，不重建 commit：
+
+```bash
+python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" chapter-commit \
+  --chapter {chapter_num} --resume
+```
+
+不回退 Step 1-4。
 
 ### Step 6：Git 备份
 
@@ -176,6 +218,7 @@ python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" bac
 
 ## 充分性闸门
 
+0. 默认模式下任务书已经用户确认（`--auto`/`--minimal` 除外）
 1. 正文文件存在且非空
 2. 审查已落库（`--minimal` 除外）
 3. blocking=true 必须停在 Step 3

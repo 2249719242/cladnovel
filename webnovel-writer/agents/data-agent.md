@@ -38,7 +38,7 @@ python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "{project_root}" chap
 产出三份 JSON 到 `.webnovel/tmp/`：
 - `fulfillment_result.json`：大纲履约（覆盖/遗漏节点）
 - `disambiguation_result.json`：消歧状态
-- `extraction_result.json`：必须包含 `accepted_events`、`state_deltas`、`entity_deltas`、`summary_text`
+- `extraction_result.json`：必须包含 `accepted_events`、`state_deltas`、`entity_deltas`、`summary_text`、`scene_chunks`
 
 **D 摘要**：100-150 字，含钩子类型。格式：
 
@@ -62,7 +62,7 @@ hook_strength: "strong"
 
 长期记忆只提炼"可跨章复用"的事实，转成 events/deltas 写入 extraction_result。
 
-**E 索引与观测**：场景切片（50-100 字/场景）→ RAG 向量索引 → review_score≥80 时提取风格样本 → 记录耗时到 observability。
+**E 切片与观测**：场景切片（50-100 字/场景）写入 `extraction_result.scene_chunks`（格式 `[{"index": 1, "content": "..."}]`），由 commit 投影链的 vector writer 统一写入向量索引——**不要直接调 `rag index-chapter`**。review_score≥80 时提取风格样本 → 记录耗时到 observability。
 
 ## 4. 输入
 
@@ -75,11 +75,11 @@ hook_strength: "strong"
 - 不额外调 LLM
 - 置信度<0.5 不自动写入
 - 不回滚上游步骤
-- 不直接写 state/index/summaries/memory
+- 不直接写 state/index/summaries/memory/向量库（全部经 commit 投影链落地）
 
 ## 6. 校验清单
 
-实体识别完整、extraction_result 已生成、commit artifacts 齐全、projection 已触发、摘要已生成、场景索引已写入、观测日志有效。
+实体识别完整、extraction_result 已生成（含 scene_chunks）、commit artifacts 齐全、projection 已触发、摘要已生成、观测日志有效。
 
 ## 7. 输出
 
@@ -91,6 +91,7 @@ hook_strength: "strong"
   "entity_deltas": [{"entity_id": "hongyi_girl", "action": "upsert", "entity_type": "角色", "tier": "装饰", "payload": {"name": "红衣女子"}}],
   "accepted_events": [],
   "summary_text": "摘要",
+  "scene_chunks": [{"index": 1, "content": "场景切片内容（50-100字）"}],
   "scenes_chunked": 4,
   "timing_ms": {},
   "bottlenecks_top3": []
@@ -101,7 +102,7 @@ hook_strength: "strong"
 
 - **state_deltas 子项**：必须用 `field`（不是 `field_path`），`new`（不是 `new_value`），`old`（不是 `old_value`）。简单字段名直接写（如 `realm`），嵌套路径用点号（如 `power.realm`、`location.current`）。投影器会自动展开嵌套字典。
 - **entity_deltas 子项**：必须用 `entity_type`（不是 `type`），值为 `角色|组织|地点|物品|势力` 等，不是默认填 `"角色"`。`is_protagonist: true` 用于标记主角，主角字段会同步到 `state.protagonist_state`。
-- **accepted_events 通用**：`event_type` 用枚举值（`character_state_changed|power_breakthrough|relationship_changed|world_rule_revealed|world_rule_broken|open_loop_created|promise_created|promise_paid_off|artifact_obtained`）。`subject` 是事件主体的 entity_id（不是中文名）。
+- **accepted_events 通用**：`event_type` 用枚举值（`character_state_changed|power_breakthrough|relationship_changed|world_rule_revealed|world_rule_broken|open_loop_created|promise_created|promise_paid_off|artifact_obtained`）。`subject` 是事件主体的 entity_id（不是中文名）。`event_id` 可省略（落账时会按 chapter+event_type+subject+payload 自动生成确定性 ID）；如需手填，保证全局唯一即可。
 - **character_state_changed.payload**：用 `field`（或 `field_path`）+ `new`（或 `new_state`/`new_value`）+ `old`（或 `previous_state`/`old_value`）。建议直接用 `field` + `new` + `old` 与 state_deltas 保持一致。
 - **open_loop_created.payload**：必须有 `content`（悬念正文），可选 `loop_type`（悬念类型）、`unanswered_question`（核心疑问）、`urgency`、`planted_chapter`、`expected_payoff`/`loop_deadline`。投影器会从 content > unanswered_question > description 取值，不要省略 content。
 - **world_rule_revealed.payload**：必须有 `rule_content`（或 `rule`、`description`），可选 `rule_category` / `domain`、`scope`。
@@ -112,4 +113,4 @@ hook_strength: "strong"
 
 ## 8. 错误处理
 
-artifacts 失败→重跑 C/D。commit 失败→修复 JSON 后补提。索引失败→只补跑 E。耗时>30s→附原因。
+artifacts 失败→重跑 C/D。commit 失败→修复 JSON 后补提。projection 失败→由主流程 `chapter-commit --resume` 补跑。耗时>30s→附原因。

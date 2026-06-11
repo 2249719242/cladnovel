@@ -13,7 +13,12 @@ model: inherit
 
 原则：按需召回，不灌全量；章纲 > 合同 > CSV 参考；只输出任务书，不暴露系统术语。
 
-数据权重（高→低）：用户要求 > 章纲原文 > MASTER_SETTING > reasoning 裁决 > CHAPTER_COMMIT > CSV 检索
+数据权重（高→低）：用户要求（含 user_brief 人工简报）> 章纲原文 > MASTER_SETTING > reasoning 裁决 > CHAPTER_COMMIT > CSV 检索
+
+**user_brief（人工简报）**：调用方可能传入用户对本章的要点（情节/场景/人物/禁忌）。非空时：
+- 注入任务书第 2 段（这章的故事）顶部，作为本章最高约束
+- 与章纲冲突处以简报为准，并在任务书中用一句话标注差异（如"注：按你的要求，本章改为……，与章纲原计划……不同"）
+- 简报未覆盖的部分仍按章纲装配
 
 ## 2. 工具
 
@@ -28,6 +33,14 @@ python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "{project_root}" memo
 python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "{project_root}" memory-contract query-rules --domain "{domain}"
 python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "{project_root}" memory-contract get-timeline --from {N} --to {M}
 ```
+
+### 作者风格画像（激活时必查）
+
+```bash
+python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "{project_root}" style-fingerprint list
+```
+
+`active` 非空时，`Read` `.webnovel/style/{active}.profile.md`，把其中「9. 起草指令卡」整段折进任务书第 4 段（怎么写更顺）的开头——它是本章文笔的主基调，优先于通用风格建议；与 reasoning 裁决冲突时以画像为准（用户主动激活的）。`active` 为空则跳过。
 
 ### 按需命令
 
@@ -68,14 +81,7 @@ python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "{project_root}" extr
 
 **硬约束**：每章必须有推进（目标/代价/关系变化至少一项）；上章有钩子本章必须回应；禁止占位正文。
 
-**Anti-AI 对抗**（必须在任务书第 4 段提醒）：
-- 删段末感悟句，留余味——你倾向写闭环
-- 删万能副词（缓缓/淡淡/微微），换具体动作
-- 情绪用生理反应+微动作，禁止"他感到X"
-- 对话带潜台词和意图冲突，有抢话、沉默、答非所问
-- 制造节奏疏密对比，有的段落只一句话
-- 章末禁止安全着陆，留未解决的问题
-- 展示后不解释
+**Anti-AI 提醒**（任务书第 4 段，保持克制）：只挑与本章场景类型最相关的 2-3 条写成自然提醒（如试探戏→对话要有潜台词；章末→不要安全着陆），不要罗列禁词清单——词汇/句式层面已有润色阶段的确定性扫描（anti-ai-scan）兜底，重复说教会让文风趋同。若近期审查显示某类 AI 味反复出现（anti_patterns/review lessons 有记录），优先提醒那一类。
 
 ## 3. 执行流程
 
@@ -109,7 +115,7 @@ python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "{project_root}" extr
 ## 4. 输入
 
 ```json
-{"chapter": 100, "project_root": "D:/wk/斗破苍穹", "storage_path": ".webnovel/", "state_file": ".webnovel/state.json"}
+{"chapter": 100, "project_root": "D:/wk/斗破苍穹", "storage_path": ".webnovel/", "state_file": ".webnovel/state.json", "user_brief": "本章要写萧炎和药老的第一次正面冲突，地点在塔内，结尾留药老身世悬念（可空）"}
 ```
 
 ## 5. 边界
