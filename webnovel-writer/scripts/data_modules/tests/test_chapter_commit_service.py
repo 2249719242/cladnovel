@@ -145,3 +145,101 @@ def test_apply_projections_writes_events_and_amend_proposals(tmp_path):
     assert row["field"] == "world_rule"
     assert row["override_value"] == "短时失控突破"
     assert row["status"] == "pending"
+
+
+def test_build_commit_carries_scene_chunks(tmp_path):
+    service = ChapterCommitService(tmp_path)
+    payload = service.build_commit(
+        chapter=3,
+        review_result={"blocking_count": 0},
+        fulfillment_result={"missed_nodes": []},
+        disambiguation_result={"pending": []},
+        extraction_result={
+            "state_deltas": [],
+            "entity_deltas": [],
+            "accepted_events": [],
+            "summary_text": "",
+            "scene_chunks": [{"index": 1, "content": "场景一"}],
+        },
+    )
+    assert payload["scene_chunks"] == [{"index": 1, "content": "场景一"}]
+
+
+def test_resume_projections_returns_error_when_commit_missing(tmp_path):
+    service = ChapterCommitService(tmp_path)
+    result = service.resume_projections(99)
+    assert result["error"] == "commit_not_found"
+
+
+def test_resume_projections_only_reruns_failed_and_pending(tmp_path, monkeypatch):
+    import data_modules.state_projection_writer as spw
+    import data_modules.index_projection_writer as ipw
+    import data_modules.summary_projection_writer as sumw
+    import data_modules.memory_projection_writer as memw
+    import data_modules.vector_projection_writer as vpw
+
+    calls = []
+
+    def make_writer(name, applied=True):
+        class _Stub:
+            def __init__(self, project_root):
+                pass
+
+            def apply(self, payload):
+                calls.append(name)
+                return {"applied": applied, "writer": name}
+
+        return _Stub
+
+    monkeypatch.setattr(spw, "StateProjectionWriter", make_writer("state"))
+    monkeypatch.setattr(ipw, "IndexProjectionWriter", make_writer("index"))
+    monkeypatch.setattr(sumw, "SummaryProjectionWriter", make_writer("summary"))
+    monkeypatch.setattr(memw, "MemoryProjectionWriter", make_writer("memory"))
+    monkeypatch.setattr(vpw, "VectorProjectionWriter", make_writer("vector"))
+
+    service = ChapterCommitService(tmp_path)
+    payload = {
+        "meta": {"schema_version": "story-system/v1", "chapter": 7, "status": "accepted"},
+        "accepted_events": [],
+        "state_deltas": [],
+        "entity_deltas": [],
+        "summary_text": "",
+        "scene_chunks": [],
+        "projection_status": {
+            "state": "failed:boom",
+            "index": "done",
+            "summary": "done",
+            "memory": "skipped",
+            "vector": "pending",
+        },
+    }
+    service.persist_commit(payload)
+
+    result = service.resume_projections(7)
+
+    assert calls == ["state"]
+    assert result["projection_status"]["state"] == "done"
+    assert result["projection_status"]["vector"] == "skipped"
+    assert result["projection_status"]["index"] == "done"
+    assert result["projection_status"]["summary"] == "done"
+    assert result["projection_status"]["memory"] == "skipped"
+
+    persisted = service.load_commit(7)
+    assert persisted["projection_status"]["state"] == "done"
+
+
+def test_resume_projections_noop_when_all_done(tmp_path):
+    service = ChapterCommitService(tmp_path)
+    payload = {
+        "meta": {"schema_version": "story-system/v1", "chapter": 8, "status": "accepted"},
+        "projection_status": {
+            "state": "done",
+            "index": "skipped",
+            "summary": "done",
+            "memory": "done",
+            "vector": "skipped",
+        },
+    }
+    service.persist_commit(payload)
+    result = service.resume_projections(8)
+    assert result["projection_status"]["state"] == "done"

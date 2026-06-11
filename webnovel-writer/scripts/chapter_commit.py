@@ -20,13 +20,37 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Chapter commit CLI")
     parser.add_argument("--project-root", required=True)
     parser.add_argument("--chapter", type=int, required=True)
-    parser.add_argument("--review-result", required=True)
-    parser.add_argument("--fulfillment-result", required=True)
-    parser.add_argument("--disambiguation-result", required=True)
-    parser.add_argument("--extraction-result", required=True)
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="读取已持久化的 commit 文件，只补跑 failed/pending 的 projection",
+    )
+    parser.add_argument("--review-result", default="")
+    parser.add_argument("--fulfillment-result", default="")
+    parser.add_argument("--disambiguation-result", default="")
+    parser.add_argument("--extraction-result", default="")
     args = parser.parse_args()
 
     service = ChapterCommitService(Path(args.project_root))
+
+    if args.resume:
+        payload = service.resume_projections(args.chapter)
+        print(json.dumps(payload, ensure_ascii=False))
+        return
+
+    missing = [
+        flag
+        for flag, value in (
+            ("--review-result", args.review_result),
+            ("--fulfillment-result", args.fulfillment_result),
+            ("--disambiguation-result", args.disambiguation_result),
+            ("--extraction-result", args.extraction_result),
+        )
+        if not value
+    ]
+    if missing:
+        parser.error(f"非 --resume 模式下必须提供: {', '.join(missing)}")
+
     payload = service.build_commit(
         chapter=args.chapter,
         review_result=_read_json(args.review_result),

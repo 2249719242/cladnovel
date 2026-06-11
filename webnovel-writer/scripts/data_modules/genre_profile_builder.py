@@ -7,9 +7,35 @@ Genre profile parsing helpers for ContextManager.
 from __future__ import annotations
 
 import re
-from typing import List
+from pathlib import Path
+from typing import List, Optional
 
 from .genre_aliases import normalize_genre_token
+
+# 插件自带共享 references 目录（webnovel-writer/references/）
+_PLUGIN_REFERENCES_DIR = Path(__file__).resolve().parents[2] / "references"
+
+
+def resolve_shared_reference(project_root: Path | str, filename: str) -> Optional[Path]:
+    """解析共享 reference 文件路径。
+
+    优先级：书项目级覆盖（{project_root}/.claude/references/）>
+    插件自带（{plugin_root}/references/）。两处都不存在返回 None。
+
+    插件安装模式下书项目不会有 .claude/references/，必须回退到插件目录，
+    否则 genre_profile / taxonomy 会静默失效。
+    """
+    candidates = [
+        Path(project_root) / ".claude" / "references" / filename,
+        _PLUGIN_REFERENCES_DIR / filename,
+    ]
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    return None
 
 
 def parse_genre_tokens(

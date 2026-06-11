@@ -221,7 +221,7 @@ class MemoryContractAdapter:
 
         # 7. 题材画像摘要（只抽取当前题材的 profile，避免全量加载 genre-profiles.md）
         try:
-            from .genre_profile_builder import extract_genre_section
+            from .genre_profile_builder import extract_genre_section, resolve_shared_reference
             genre = str(
                 (sections.get("story_contracts", {}).get("master", {})
                  .get("route", {}).get("primary_genre", ""))
@@ -233,8 +233,8 @@ class MemoryContractAdapter:
                 sm._load_state()
                 genre = str(sm._state.get("project", {}).get("genre", "")).strip()
             if genre:
-                profile_path = self.config.project_root / ".claude" / "references" / "genre-profiles.md"
-                if profile_path.exists():
+                profile_path = resolve_shared_reference(self.config.project_root, "genre-profiles.md")
+                if profile_path:
                     profile_text = profile_path.read_text(encoding="utf-8")
                     excerpt = extract_genre_section(profile_text, genre)
                     if excerpt:

@@ -73,6 +73,7 @@ PASSTHROUGH_TOOLS = {
     "state",
     "rag",
     "style",
+    "style-fingerprint",
     "entity",
     "context",
     "memory",
@@ -300,6 +301,9 @@ def main() -> None:
     p_rag = sub.add_parser("rag", help="转发到 rag_adapter")
     p_rag.add_argument("args", nargs=argparse.REMAINDER)
 
+    p_style_fp = sub.add_parser("style-fingerprint", help="转发到 style_fingerprint（作者风格指纹）")
+    p_style_fp.add_argument("args", nargs=argparse.REMAINDER)
+
     p_style = sub.add_parser("style", help="转发到 style_sampler")
     p_style.add_argument("args", nargs=argparse.REMAINDER)
 
@@ -354,6 +358,7 @@ def main() -> None:
 
     p_commit = sub.add_parser("chapter-commit", help="转发到 chapter_commit.py")
     p_commit.add_argument("--chapter", type=int, required=True, help="目标章节号")
+    p_commit.add_argument("--resume", action="store_true", help="只补跑 failed/pending 的 projection")
     p_commit.add_argument("--review-result", default="", help="review_result JSON 文件")
     p_commit.add_argument("--fulfillment-result", default="", help="fulfillment_result JSON 文件")
     p_commit.add_argument("--disambiguation-result", default="", help="disambiguation_result JSON 文件")
@@ -438,6 +443,8 @@ def main() -> None:
         raise SystemExit(_run_data_module("state_manager", [*forward_args, *rest]))
     if tool == "rag":
         raise SystemExit(_run_data_module("rag_adapter", [*forward_args, *rest]))
+    if tool == "style-fingerprint":
+        raise SystemExit(_run_data_module("style_fingerprint", [*forward_args, *rest]))
     if tool == "style":
         raise SystemExit(_run_data_module("style_sampler", [*forward_args, *rest]))
     if tool == "entity":
@@ -475,6 +482,8 @@ def main() -> None:
         raise SystemExit(_run_script("story_events.py", return_args))
     if tool == "chapter-commit":
         return_args = [*forward_args, "--chapter", str(args.chapter)]
+        if args.resume:
+            return_args.append("--resume")
         if args.review_result:
             return_args.extend(["--review-result", str(args.review_result)])
         if args.fulfillment_result:

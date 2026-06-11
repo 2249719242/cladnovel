@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import sys
@@ -103,6 +104,27 @@ class EventLogStore:
                     sqlite_rows = 0
         return {"ok": True, "sqlite_rows": sqlite_rows, "event_files": file_count}
 
+    @staticmethod
+    def _derive_event_id(payload: Dict[str, Any]) -> str:
+        """缺失 event_id 时按事件内容生成确定性 ID。
+
+        确定性（而非随机 UUID）保证 chapter-commit 重跑时 SQLite 镜像的
+        `INSERT OR IGNORE ... event_id UNIQUE` 幂等，不会重复入库。
+        """
+        material = json.dumps(
+            {
+                "chapter": payload.get("chapter"),
+                "event_type": payload.get("event_type"),
+                "subject": payload.get("subject"),
+                "payload": payload.get("payload"),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+        digest = hashlib.sha1(material.encode("utf-8")).hexdigest()[:16]
+        return f"evt_{payload.get('chapter', 0)}_{digest}"
+
     def _normalize_events(self, chapter: int, events: List[dict]) -> List[Dict[str, Any]]:
         normalized: List[Dict[str, Any]] = []
         for event in events or []:
@@ -110,6 +132,8 @@ class EventLogStore:
                 continue
             payload = dict(event)
             payload["chapter"] = int(payload.get("chapter") or chapter)
+            if not str(payload.get("event_id") or "").strip():
+                payload["event_id"] = self._derive_event_id(payload)
             normalized.append(StoryEvent.model_validate(payload).model_dump())
         return normalized
 

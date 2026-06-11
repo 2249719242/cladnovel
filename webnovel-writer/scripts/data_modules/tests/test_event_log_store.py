@@ -40,6 +40,59 @@ def test_event_log_store_writes_per_chapter_file_and_sqlite_mirror(tmp_path):
     assert row == ("evt-001", 3, "open_loop_created")
 
 
+def test_event_log_store_autogenerates_deterministic_event_id(tmp_path):
+    store = EventLogStore(tmp_path)
+    event = {
+        "event_type": "open_loop_created",
+        "subject": "xiaoyan",
+        "payload": {"content": "三年之约"},
+    }
+    store.write_events(5, [dict(event)])
+    first = store.read_events(5)
+    assert len(first) == 1
+    assert first[0]["event_id"].startswith("evt_5_")
+
+    # 重跑同一事件：event_id 确定性一致，SQLite 镜像不重复入库
+    store.write_events(5, [dict(event)])
+    second = store.read_events(5)
+    assert second[0]["event_id"] == first[0]["event_id"]
+
+    conn = sqlite3.connect(tmp_path / ".webnovel" / "index.db")
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM story_events").fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 1
+
+
+def test_apply_projections_isolates_event_log_failure(tmp_path, monkeypatch):
+    _ensure_scripts_on_path()
+    from data_modules.chapter_commit_service import ChapterCommitService
+    import data_modules.chapter_commit_service as ccs
+
+    def _boom(self, chapter, events):
+        raise ValueError("bad event")
+
+    monkeypatch.setattr(ccs.EventLogStore, "write_events", _boom)
+
+    (tmp_path / ".webnovel").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".webnovel" / "state.json").write_text("{}", encoding="utf-8")
+
+    service = ChapterCommitService(tmp_path)
+    payload = service.build_commit(
+        chapter=1,
+        review_result={},
+        fulfillment_result={},
+        disambiguation_result={},
+        extraction_result={"accepted_events": [{"event_type": "open_loop_created"}]},
+    )
+    assert payload["meta"]["status"] == "accepted"
+    result = service.apply_projections(payload)
+    # 事件落账失败被隔离为 warning，不再让整条投影链崩溃
+    assert any(w.startswith("event_log_failed:") for w in result.get("projection_warnings", []))
+    assert "projection_status" in result
+
+
 def test_event_log_store_ignores_duplicate_event_id(tmp_path):
     store = EventLogStore(tmp_path)
     event = {

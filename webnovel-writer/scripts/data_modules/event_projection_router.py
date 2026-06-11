@@ -30,6 +30,9 @@ class EventProjectionRouter:
             writers.add("index")
         if str(commit_payload.get("summary_text") or "").strip():
             writers.add("summary")
+        if commit_payload.get("scene_chunks") or str(commit_payload.get("summary_text") or "").strip():
+            # 场景切片/摘要需进向量索引（原 data-agent 直写 rag index-chapter 的职责收束到 commit 链）
+            writers.add("vector")
         for event in commit_payload.get("accepted_events") or []:
             if not isinstance(event, dict):
                 continue

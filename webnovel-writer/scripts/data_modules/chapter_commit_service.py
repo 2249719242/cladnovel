@@ -66,6 +66,7 @@ class ChapterCommitService:
             "state_deltas": extraction_result.get("state_deltas", []),
             "entity_deltas": extraction_result.get("entity_deltas", []),
             "summary_text": extraction_result.get("summary_text", ""),
+            "scene_chunks": extraction_result.get("scene_chunks", []),
             "projection_status": {
                 "state": "pending",
                 "index": "pending",
@@ -82,21 +83,69 @@ class ChapterCommitService:
         write_json(path, payload)
         return path
 
+    def load_commit(self, chapter: int) -> Dict[str, Any] | None:
+        path = (
+            self.project_root
+            / ".story-system"
+            / "commits"
+            / f"chapter_{int(chapter):03d}.commit.json"
+        )
+        if not path.is_file():
+            return None
+        import json
+
+        return json.loads(path.read_text(encoding="utf-8"))
+
     def apply_projections(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         if payload["meta"]["status"] != "accepted":
             return payload
 
         chapter = int((payload.get("meta") or {}).get("chapter") or 0)
-        EventLogStore(self.project_root).write_events(chapter, payload.get("accepted_events", []))
+        try:
+            EventLogStore(self.project_root).write_events(chapter, payload.get("accepted_events", []))
+        except Exception as exc:
+            payload.setdefault("projection_warnings", []).append(f"event_log_failed:{exc}")
 
-        proposals = AmendProposalTrigger().check(chapter, payload.get("accepted_events", []))
-        if proposals:
-            manager = IndexManager(DataModulesConfig.from_project_root(self.project_root))
-            with manager._get_conn() as conn:
-                ensure_override_ledger_columns(conn)
-                persist_amend_proposals(conn, chapter, proposals)
-                conn.commit()
+        try:
+            proposals = AmendProposalTrigger().check(chapter, payload.get("accepted_events", []))
+            if proposals:
+                manager = IndexManager(DataModulesConfig.from_project_root(self.project_root))
+                with manager._get_conn() as conn:
+                    ensure_override_ledger_columns(conn)
+                    persist_amend_proposals(conn, chapter, proposals)
+                    conn.commit()
+        except Exception as exc:
+            payload.setdefault("projection_warnings", []).append(f"amend_proposals_failed:{exc}")
 
+        self._apply_writers(payload, only=None)
+        self.persist_commit(payload)
+        return payload
+
+    def resume_projections(self, chapter: int) -> Dict[str, Any]:
+        payload = self.load_commit(chapter)
+        if payload is None:
+            return {
+                "error": "commit_not_found",
+                "chapter": chapter,
+                "hint": "先运行完整 chapter-commit 生成 commit 文件",
+            }
+        if payload.get("meta", {}).get("status") != "accepted":
+            return payload
+
+        status_map = payload.get("projection_status") or {}
+        retry = {
+            name
+            for name, status in status_map.items()
+            if status == "pending" or str(status).startswith("failed")
+        }
+        if not retry:
+            return payload
+
+        self._apply_writers(payload, only=retry)
+        self.persist_commit(payload)
+        return payload
+
+    def _apply_writers(self, payload: Dict[str, Any], only: set | None) -> None:
         from .index_projection_writer import IndexProjectionWriter
         from .memory_projection_writer import MemoryProjectionWriter
         from .state_projection_writer import StateProjectionWriter
@@ -112,6 +161,8 @@ class ChapterCommitService:
         }
         required_writers = set(EventProjectionRouter().required_writers(payload))
         for name, writer in writers.items():
+            if only is not None and name not in only:
+                continue
             if name not in required_writers:
                 payload["projection_status"][name] = "skipped"
                 continue
@@ -120,5 +171,3 @@ class ChapterCommitService:
                 payload["projection_status"][name] = "done" if result.get("applied") else "skipped"
             except Exception as exc:
                 payload["projection_status"][name] = f"failed:{exc}"
-        self.persist_commit(payload)
-        return payload

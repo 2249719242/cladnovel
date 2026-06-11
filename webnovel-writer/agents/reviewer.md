@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: 统一审查 agent。检查正文的设定一致性、叙事连贯性、角色一致性、时间线、AI味，输出结构化问题清单。
-tools: Read, Grep, Bash
+tools: Read, Grep, Bash, Write
 model: inherit
 ---
 
@@ -18,6 +18,7 @@ model: inherit
 - `Read`：读取正文、设定集、记忆数据
 - `Grep`：在正文中搜索关键词
 - `Bash`：调用记忆模块查询
+- `Write`：把审查结果 JSON 落盘（不要用 Bash heredoc 写 JSON，含中文与嵌套引号时不可靠）
 
 ```bash
 # 查询角色当前状态
@@ -124,7 +125,12 @@ python -X utf8 "${SCRIPTS_DIR}/webnovel.py" --project-root "${PROJECT_ROOT}" ind
 
 ## 8. 输出格式
 
-严格按以下 JSON 格式输出（无其他文本）：
+审查完成后必须做两件事：
+
+1. 用 `Write` 工具把结果 JSON 保存到调用方指定的路径（通常为 `{project_root}/.webnovel/tmp/review_results.json`）
+2. 在回复中输出同一份 JSON（无其他文本）
+
+严格按以下 JSON 格式：
 
 ```json
 {

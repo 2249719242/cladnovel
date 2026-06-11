@@ -99,3 +99,25 @@ def test_router_ignores_unknown_and_non_dict_events():
         }
     )
     assert writers == []
+
+
+def test_required_writers_includes_vector_for_scene_chunks_and_summary():
+    router = EventProjectionRouter()
+
+    writers = router.required_writers(
+        {
+            "meta": {"status": "rejected"},
+            "accepted_events": [],
+            "scene_chunks": [{"index": 1, "content": "场景"}],
+        }
+    )
+    assert "vector" in writers
+
+    writers = router.required_writers(
+        {
+            "meta": {"status": "rejected"},
+            "accepted_events": [],
+            "summary_text": "本章摘要",
+        }
+    )
+    assert "vector" in writers

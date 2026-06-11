@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import sqlite3
+import sys
 import tempfile
 import uuid
 from pathlib import Path
@@ -54,12 +55,15 @@ def _install_safe_tempfile() -> None:
 
 class _SafeTemporaryDirectory(_ORIGINAL_TEMPORARY_DIRECTORY):
     def __init__(self, suffix=None, prefix=None, dir=None, ignore_cleanup_errors=True, *, delete=True):
+        # `delete=` kwarg only exists on Python >= 3.12; omit it on older versions
+        # (where cleanup-on-exit is the only behaviour, equivalent to delete=True).
+        extra_kwargs = {"delete": delete} if sys.version_info >= (3, 12) else {}
         super().__init__(
             suffix=suffix,
             prefix=prefix,
             dir=dir,
             ignore_cleanup_errors=ignore_cleanup_errors,
-            delete=delete,
+            **extra_kwargs,
         )
 
 

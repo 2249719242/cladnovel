@@ -33,7 +33,37 @@ class VectorProjectionWriter:
         chunks: List[Dict[str, Any]] = []
         chapter = int(commit_payload.get("meta", {}).get("chapter") or 0)
 
-        for event in commit_payload.get("accepted_events") or []:
+        summary_text = str(commit_payload.get("summary_text") or "").strip()
+        parent_chunk_id = None
+        if summary_text:
+            parent_chunk_id = f"ch{chapter:04d}_summary"
+            chunks.append({
+                "chapter": chapter,
+                "scene_index": 0,
+                "content": summary_text,
+                "chunk_type": "summary",
+                "chunk_id": parent_chunk_id,
+                "source_file": f"summaries/ch{chapter:04d}.md",
+            })
+
+        for scene in commit_payload.get("scene_chunks") or []:
+            if not isinstance(scene, dict):
+                continue
+            content = str(scene.get("content") or "").strip()
+            if not content:
+                continue
+            scene_index = int(scene.get("index") or scene.get("scene_index") or 0)
+            chunks.append({
+                "chapter": chapter,
+                "scene_index": scene_index,
+                "content": content,
+                "chunk_type": "scene",
+                "parent_chunk_id": parent_chunk_id,
+                "chunk_id": f"ch{chapter:04d}_s{scene_index}",
+                "source_file": f"正文/第{chapter:04d}章.md#scene_{scene_index}",
+            })
+
+        for i, event in enumerate(commit_payload.get("accepted_events") or []):
             if not isinstance(event, dict):
                 continue
             text = self._event_to_text(event)
@@ -44,11 +74,12 @@ class VectorProjectionWriter:
                     "scene_index": 0,
                     "content": text,
                     "chunk_type": "event",
+                    "chunk_id": f"ch{evt_chapter:04d}_evt{i}",
                     "parent_chunk_id": f"ch{evt_chapter:04d}_summary",
                     "source_file": f"commit:chapter_{evt_chapter:03d}",
                 })
 
-        for delta in commit_payload.get("entity_deltas") or []:
+        for i, delta in enumerate(commit_payload.get("entity_deltas") or []):
             if not isinstance(delta, dict):
                 continue
             text = self._delta_to_text(delta)
@@ -59,6 +90,7 @@ class VectorProjectionWriter:
                     "scene_index": 0,
                     "content": text,
                     "chunk_type": "entity_delta",
+                    "chunk_id": f"ch{d_chapter:04d}_ed{i}",
                     "parent_chunk_id": f"ch{d_chapter:04d}_summary",
                     "source_file": f"commit:chapter_{d_chapter:03d}",
                 })

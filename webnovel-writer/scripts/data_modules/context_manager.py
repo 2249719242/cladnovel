@@ -42,6 +42,7 @@ from .genre_profile_builder import (
     extract_genre_section,
     extract_markdown_refs,
     parse_genre_tokens,
+    resolve_shared_reference,
 )
 from .writing_guidance_builder import (
     build_methodology_guidance_items,
@@ -329,11 +330,11 @@ class ContextManager:
         primary_genre = genres[0]
         secondary_genres = genres[1:]
         composite = len(genres) > 1
-        profile_path = self.config.project_root / ".claude" / "references" / "genre-profiles.md"
-        taxonomy_path = self.config.project_root / ".claude" / "references" / "reading-power-taxonomy.md"
+        profile_path = resolve_shared_reference(self.config.project_root, "genre-profiles.md")
+        taxonomy_path = resolve_shared_reference(self.config.project_root, "reading-power-taxonomy.md")
 
-        profile_text = profile_path.read_text(encoding="utf-8") if profile_path.exists() else ""
-        taxonomy_text = taxonomy_path.read_text(encoding="utf-8") if taxonomy_path.exists() else ""
+        profile_text = profile_path.read_text(encoding="utf-8") if profile_path else ""
+        taxonomy_text = taxonomy_path.read_text(encoding="utf-8") if taxonomy_path else ""
 
         profile_excerpt = self._extract_genre_section(profile_text, primary_genre)
         taxonomy_excerpt = self._extract_genre_section(taxonomy_text, primary_genre)
